@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jwalinshah.m5logd</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/jwalinshah/.local/bin/m5logd</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/jwalinshah/Library/Logs/m5logd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/jwalinshah/Library/Logs/m5logd-stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/jwalinshah/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/jwalinshah</string>
+    </dict>
+</dict>
+</plist>
