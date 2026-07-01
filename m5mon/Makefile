@@ -8,6 +8,7 @@ $(TARGET): main.go go.mod
 
 install: $(TARGET)
 	cp $(TARGET) $(INSTALL)
+	codesign --sign - --force $(INSTALL)
 	@echo "  [INSTALL] $(INSTALL)"
 
 clean:
