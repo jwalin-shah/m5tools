@@ -1,3 +1,7 @@
 m5fand/m5fand
 m5logd/m5logd
 m5mon/m5mon
+# CocoIndex Code (ccc)
+/.cocoindex_code/
+.tldr/
+.tldrignore
