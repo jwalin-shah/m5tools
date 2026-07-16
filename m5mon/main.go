@@ -319,7 +319,7 @@ func render(s Sensors, cl ClusterUtil, gpuPct int, m MemInfo, ld [3]float64, up 
 	pk := cpuM; if gpuM > pk { pk = gpuM }
 	cr, cc2 := "silent", "47"
 	if pk >= 75 { cr, cc2 = "aggressive", "196" } else if pk >= 60 { cr, cc2 = "active", "214" } else if pk >= 50 { cr, cc2 = "balanced", "226" }
-	fmt.Printf("  Curve: " + C + "38;5;" + cc2 + "m" + cr + C + "0m sigmoid\n")
+	fmt.Printf("  Curve: %s38;5;%sm%s%s0m sigmoid\n", C, cc2, cr, C)
 
 	mp := m.UsedGB / m.TotalGB * 100
 	fmt.Printf("\n  %s  MEM%s  ", C+"1m", C+"0m")

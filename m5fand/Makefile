@@ -14,7 +14,11 @@ install: $(TARGET)
 	codesign --sign - --force $(INSTALL)
 	@echo "  [INSTALL] $(INSTALL)"
 
+test: $(TARGET)
+	@echo "  [TEST] $(TARGET) binary exists and is executable"
+	@test -x $(TARGET)
+
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all install clean
+.PHONY: all install test clean
