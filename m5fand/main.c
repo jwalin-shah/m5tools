@@ -110,10 +110,16 @@ int main(void) {
          * the sensor reads — force fans to max safe speed and exit rather
          * than cook the machine at minimum RPM. */
         if (t <= 0) {
-            if (lf) fprintf(lf, "m5fand: FATAL — zero temp read from smc, forcing max fans and exiting\n");
-            fprintf(stderr, "m5fand: FATAL — zero temperature read from smc, forcing max fans and exiting\n");
-            w32("F0Tg", cv_h[CLEN - 1]); w32("F1Tg", cv_h[CLEN - 1]);
-            return 1;
+            static int zero_strikes = 0;
+            zero_strikes++;
+            if (zero_strikes >= 3) {
+                if (lf) fprintf(lf, "m5fand: FATAL — zero temp for %d cycles, forcing max fans and exiting\n", zero_strikes);
+                fprintf(stderr, "m5fand: FATAL — zero temp for %d cycles, forcing max fans and exiting\n", zero_strikes);
+                w32("F0Tg", cv_h[CLEN - 1]); w32("F1Tg", cv_h[CLEN - 1]);
+                return 1;
+            }
+            sleep(2);
+            continue;
         }
 
         if (t < 30) { t = 30; }
