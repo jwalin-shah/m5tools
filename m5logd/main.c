@@ -1,5 +1,5 @@
 /* m5logd -- M5 Pro telemetry logger
- * Binary delta log: CPU cluster util, memory, thermal.
+ * Binary delta log: CPU cluster util, memory, thermal, temps, fans.
  * Only records deltas. ~100 records/day at idle vs 43k for text logs.
  * Reader: m5log (separate tool).
  *
@@ -18,9 +18,33 @@
 #define REC_CPU   1
 #define REC_MEM   2
 #define REC_THERM 3
+#define REC_TEMP  4   /* CPU/GPU die temp (°C), fan RPM — two uint16_t each */
+#define REC_FAN   5
 
 static uint64_t base_us = 0, last_us = 0;
 static FILE *lfp = NULL;
+
+/* ── SMC path: runtime detection ────────────────────────── */
+static char smc_buf[256];
+static const char *smc_path(void) {
+    if (smc_buf[0] != '\0') return smc_buf;
+    const char *home = getenv("HOME");
+    if (home) {
+        snprintf(smc_buf, sizeof smc_buf, "%s/.local/bin/smc", home);
+        if (access(smc_buf, X_OK) == 0) return smc_buf;
+    }
+    FILE *fp = popen("which smc 2>/dev/null", "r");
+    if (fp) {
+        if (fgets(smc_buf, sizeof smc_buf, fp)) {
+            size_t len = strlen(smc_buf);
+            if (len > 0 && smc_buf[len - 1] == '\n') smc_buf[len - 1] = '\0';
+            pclose(fp);
+            if (smc_buf[0] != '\0' && access(smc_buf, X_OK) == 0) return smc_buf;
+        } else { pclose(fp); }
+    }
+    snprintf(smc_buf, sizeof smc_buf, "/usr/local/bin/smc");
+    return smc_buf;
+}
 
 static uint64_t now_us(void) {
     struct timespec ts;
@@ -36,7 +60,7 @@ static int log_open(void) {
     }
     char p[256]; snprintf(p, sizeof p, "%s/Library/Logs/m5logd.m5l", h);
     lfp = fopen(p, "wb"); if (!lfp) return -1;
-    uint8_t hdr[32] = {0}; memcpy(hdr, "M5LOGv1", 8);
+    uint8_t hdr[32] = {0}; memcpy(hdr, "M5LOGv2", 8);
     uint64_t bt = 0; size_t sz = sizeof(bt);
     sysctlbyname("kern.boottime", &bt, &sz, NULL, 0);
     memcpy(hdr+8, &bt, 8);
@@ -72,18 +96,13 @@ static int mem_read(float *u, float *w, int *pr) {
     uint64_t pg = vm_page_size;
     *u = (vm.active_count + vm.wire_count) * pg / 1048576.0f;
     *w = vm.wire_count * pg / 1048576.0f;
-
-    /* memory pressure: 0=low 1=mod 2=high 3=critical */
     uint64_t fp = 0; size_t sz = sizeof fp;
     sysctlbyname("vm.page_free_count", &fp, &sz, NULL, 0);
     *pr = fp > 50000 ? 0 : fp > 10000 ? 1 : fp > 5000 ? 2 : 3;
-
-    /* Also get swap usage */
     struct xsw_usage swap;
     sz = sizeof swap;
-    if (sysctlbyname("vm.swapusage", &swap, &sz, NULL, 0) == 0) {
-        *u += swap.xsu_used / 1048576.0f;  /* include swap in "used" */
-    }
+    if (sysctlbyname("vm.swapusage", &swap, &sz, NULL, 0) == 0)
+        *u += swap.xsu_used / 1048576.0f;
     return 0;
 }
 
@@ -95,6 +114,49 @@ static int therm_read(int *level) {
     return 0;
 }
 
+/* ── Temps via smc: max of sensor prefix ────────────────── */
+static float smc_max_temp(const char *pfx) {
+    char cmd[320]; int r = snprintf(cmd, sizeof cmd, "%s -l 2>/dev/null", smc_path());
+    if (r < 0 || (size_t)r >= sizeof cmd) return -1;
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return -1;
+    char line[128]; float mx = -1; size_t pl = strlen(pfx);
+    while (fgets(line, sizeof line, fp)) {
+        char *bracket = strrchr(line, ']');
+        if (!bracket) continue;
+        char *end = NULL;
+        float v = strtof(bracket + 1, &end);
+        if (end == bracket + 1) continue;
+        if (strlen(line) < 6) continue;
+        char k[5] = {line[2], line[3], line[4], line[5], 0};
+        if (strncmp(k, pfx, pl) == 0 && v > mx) mx = v;
+    }
+    pclose(fp); return mx;
+}
+
+/* ── Fan RPM via smc -f ─────────────────────────────────── */
+static int smc_read_fans(uint16_t *f0, uint16_t *f1) {
+    char cmd[320]; int r = snprintf(cmd, sizeof cmd, "%s -f 2>/dev/null", smc_path());
+    if (r < 0 || (size_t)r >= sizeof cmd) return -1;
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return -1;
+    char line[128]; int found = 0;
+    *f0 = 0; *f1 = 0;
+    while (fgets(line, sizeof line, fp)) {
+        if (strstr(line, "Fan #0")) {
+            if (fgets(line, sizeof line, fp) && strstr(line, "Current speed"))
+                *f0 = (uint16_t)atoi(strrchr(line, ':') ? strrchr(line, ':') + 2 : "0");
+            found++;
+        }
+        if (strstr(line, "Fan #1")) {
+            if (fgets(line, sizeof line, fp) && strstr(line, "Current speed"))
+                *f1 = (uint16_t)atoi(strrchr(line, ':') ? strrchr(line, ':') + 2 : "0");
+            found++;
+        }
+    }
+    pclose(fp); return found >= 2 ? 0 : -1;
+}
+
 /* ── Main loop ──────────────────────────────────────────── */
 int main(void) {
     if (log_open() < 0) return 1;
@@ -102,6 +164,7 @@ int main(void) {
 
     float pp = -1, ep = -1, pu = -1, pw = -1;
     int ppr = -1, ptl = -1;
+    uint16_t pcpu = 0, pgpu = 0, pf0 = 0, pf1 = 0;
 
     while (1) {
         /* CPU */
@@ -129,6 +192,28 @@ int main(void) {
             uint8_t v = (uint8_t)tl;
             wr(REC_THERM, &v, 1);
             ptl = tl;
+        }
+
+        /* Temps: CPU/GPU die temp from smc */
+        float cpu_t = smc_max_temp("Tp");
+        float gpu_t = smc_max_temp("Tg");
+        if (cpu_t >= 0 && gpu_t >= 0) {
+            uint16_t ct = (uint16_t)cpu_t, gt = (uint16_t)gpu_t;
+            if (abs((int)ct - (int)pcpu) >= 2 || abs((int)gt - (int)pgpu) >= 2) {
+                uint16_t buf[2] = {ct, gt};
+                wr(REC_TEMP, buf, 4);
+                pcpu = ct; pgpu = gt;
+            }
+        }
+
+        /* Fans: RPM */
+        uint16_t f0 = 0, f1 = 0;
+        if (smc_read_fans(&f0, &f1) == 0) {
+            if (abs((int)f0 - (int)pf0) >= 100 || abs((int)f1 - (int)pf1) >= 100) {
+                uint16_t buf[2] = {f0, f1};
+                wr(REC_FAN, buf, 4);
+                pf0 = f0; pf1 = f1;
+            }
         }
 
         sleep(2);
