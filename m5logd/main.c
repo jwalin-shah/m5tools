@@ -29,7 +29,11 @@ static uint64_t now_us(void) {
 }
 
 static int log_open(void) {
-    const char *h = getenv("HOME"); if (!h) h = "/Users/jwalinshah";
+    const char *h = getenv("HOME");
+    if (!h) {
+        fprintf(stderr, "m5logd: HOME not set, cannot determine log path\n");
+        return -1;
+    }
     char p[256]; snprintf(p, sizeof p, "%s/Library/Logs/m5logd.m5l", h);
     lfp = fopen(p, "wb"); if (!lfp) return -1;
     uint8_t hdr[32] = {0}; memcpy(hdr, "M5LOGv1", 8);

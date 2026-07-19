@@ -6,16 +6,16 @@
     <string>com.jwalinshah.m5fand</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/jwalinshah/.local/bin/m5fand</string>
+        <string>/usr/local/bin/m5fand</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/jwalinshah/Library/Logs/m5fand.log</string>
+    <string>/var/log/m5fand.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/jwalinshah/Library/Logs/m5fand.log</string>
+    <string>/var/log/m5fand.log</string>
     <key>UserName</key>
     <string>root</string>
 </dict>
