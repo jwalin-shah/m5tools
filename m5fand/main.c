@@ -28,13 +28,22 @@ static const char *smc_path(void) {
             if (len > 0 && smc_buf[len - 1] == '\n')
                 smc_buf[len - 1] = '\0';
             pclose(fp);
-            if (smc_buf[0] != '\0') return smc_buf;
+            if (smc_buf[0] != '\0' && access(smc_buf, X_OK) == 0) return smc_buf;
         } else {
             pclose(fp);
         }
     }
-    /* ponytail: last resort -- system default */
-    return "/usr/local/bin/smc";
+    /* Last resort */
+    snprintf(smc_buf, sizeof smc_buf, "/usr/local/bin/smc");
+    if (access(smc_buf, X_OK) == 0) return smc_buf;
+
+    /* FAIL CLOSED: no smc binary means we can't read temps or control fans.
+     * Running blind at minimum RPM will cook the machine. Exit with a loud
+     * error so launchd restarts us. macOS falls back to its own fan management
+     * when m5fand is not controlling the fans. */
+    fprintf(stderr, "m5fand: FATAL — smc binary not found at any expected path. "
+                    "Cannot read temperatures or control fans. Exiting.\n");
+    exit(1);
 }
 
 /* ── Read max temp for sensor prefix from one smc -l call ── */
@@ -96,6 +105,17 @@ int main(void) {
         float gpu = max_temp("Tg");
         float pk = (cpu > gpu) ? cpu : gpu;
         int t = ((int)pk / 2) * 2;
+
+        /* Failsafe: if smc returns zero for both, something is wrong with
+         * the sensor reads — force fans to max safe speed and exit rather
+         * than cook the machine at minimum RPM. */
+        if (t <= 0) {
+            if (lf) fprintf(lf, "m5fand: FATAL — zero temp read from smc, forcing max fans and exiting\n");
+            fprintf(stderr, "m5fand: FATAL — zero temperature read from smc, forcing max fans and exiting\n");
+            w32("F0Tg", cv_h[CLEN - 1]); w32("F1Tg", cv_h[CLEN - 1]);
+            return 1;
+        }
+
         if (t < 30) { t = 30; }
         if (t > 88) { t = 88; }
 
